@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CEDXM version="1.0">
+  <Project id="SAMPLE-001" name="サンプル案件（壁高さ2730mm）">
+    <Room id="R001" floor="1" use_type="居室" height="2730" wall_thickness="100">
+      <Polygon>
+        <Point x="0" y="0"/>
+        <Point x="3600" y="0"/>
+        <Point x="3600" y="2700"/>
+        <Point x="0" y="2700"/>
+      </Polygon>
+      <Openings>
+        <Opening id="O-D1" wall="W1" type="door" width="800" height="2000" sill_height="0" offset="600"/>
+        <Opening id="O-W1" wall="W3" type="window" width="1200" height="1000" sill_height="900" offset="center"/>
+      </Openings>
+    </Room>
+  </Project>
+</CEDXM>

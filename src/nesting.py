@@ -48,18 +48,18 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
 
     placements: List[NestPlacement] = []
     sheet_id = 1
-    shelf_y = 0.0
-    shelf_height = 0.0
-    cursor_x = 0.0
-    part_counter = 1  # パーツ番号カウンター
+    shelf_y = 0
+    shelf_height = 0
+    cursor_x = 0
+    part_counter = 1
 
     def new_sheet():
         nonlocal sheet_id, shelf_y, shelf_height, cursor_x, part_counter
         sheet_id += 1
-        shelf_y = 0.0
-        shelf_height = 0.0
-        cursor_x = 0.0
-        part_counter = 1  # 新しいボードでパーツ番号をリセット
+        shelf_y = 0
+        shelf_height = 0
+        cursor_x = 0
+        part_counter = 1
 
     for it in items:
         w, h = it["w"], it["h"]
@@ -80,8 +80,7 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
             if tw > W or th > H:
                 continue
                 
-            # 同じ棚（row）に入るか
-            if cursor_x == 0.0:
+            if cursor_x == 0:
                 # 棚開始
                 if tw <= W and shelf_y + th <= H:
                     # 元のパネルにボード番号とパーツ番号を設定
@@ -108,11 +107,10 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
                     break
 
         if not placed:
-            # 新しい棚（次のrow）
             if shelf_y + shelf_height + h <= H:
                 shelf_y += shelf_height
-                shelf_height = 0.0
-                cursor_x = 0.0
+                shelf_height = 0
+                cursor_x = 0
                 # そのまま再試行（元向き優先）
                 if forced_rotation:
                     orientations = [(w, h, True)]  # 強制回転
@@ -128,7 +126,7 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
                         panels[panel_index].board_number = sheet_id
                         panels[panel_index].part_number = part_counter
                         
-                        placements.append(NestPlacement(sheet_id, 0.0, shelf_y, tw, th, rotated, it["ref"]))
+                        placements.append(NestPlacement(sheet_id, 0, shelf_y, tw, th, rotated, it["ref"]))
                         cursor_x = tw + kerf
                         shelf_height = max(shelf_height, th + kerf)
                         part_counter += 1
@@ -141,18 +139,15 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
                     panels[panel_index].board_number = sheet_id
                     panels[panel_index].part_number = part_counter
                     
-                    placements.append(NestPlacement(sheet_id, 0.0, 0.0, w, h, forced_rotation, it["ref"]))
+                    placements.append(NestPlacement(sheet_id, 0, 0, w, h, forced_rotation, it["ref"]))
                     cursor_x = w + kerf
                     shelf_height = h + kerf
                     part_counter += 1
             else:
-                # 新ボード
                 new_sheet()
-                # 元のパネルにボード番号とパーツ番号を設定
                 panels[panel_index].board_number = sheet_id
                 panels[panel_index].part_number = part_counter
-                
-                placements.append(NestPlacement(sheet_id, 0.0, 0.0, w, h, forced_rotation, it["ref"]))
+                placements.append(NestPlacement(sheet_id, 0, 0, w, h, forced_rotation, it["ref"]))
                 cursor_x = w + kerf
                 shelf_height = h + kerf
                 part_counter += 1
@@ -160,7 +155,7 @@ def simple_nesting(panels: List[Panel], board: BoardMaster, rules: Rules, prefer
     # 利用率
     used_area = sum(pl.w * pl.h for pl in placements)
     num_sheets = max(pl.sheet_id for pl in placements) if placements else 0
-    total_area = num_sheets * W * H if num_sheets > 0 else 1.0
+    total_area = num_sheets * W * H if num_sheets > 0 else 1
     utilization = used_area / total_area
 
     return placements, utilization, num_sheets

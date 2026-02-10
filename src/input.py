@@ -10,17 +10,17 @@ def load_demo_project() -> Project:
         use_type="居室",
         polygon=[(0,0),(7200,0),(7200,5400),(0,5400)],  # 倍のサイズ: 7200mm x 5400mm
         height=2400,
-        wall_thickness=100.0
+        wall_thickness=100
     )
     openings = [
         Opening(
             opening_id="O-D1",
             wall="W1",
             type="door",
-            width=1800,
+            width=1500,
             height=2000,
             sill_height=0,
-            offset_from_wall_start="1200"  # 位置も調整
+            offset_from_wall_start="910"  # 位置も調整
         ),
         Opening(
             opening_id="O-W1",

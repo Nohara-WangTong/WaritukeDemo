@@ -27,12 +27,122 @@ def get_panel_color(panel: Panel) -> str:
     # 現在は真物として薄緑を使用
     return PANEL_COLORS["good"]
 
-def create_room_plan_plotly(project: Project):
-    """Plotlyを使用した平面プレビュー（CAD図面描画エンジン）- パネル割付結果も表示"""
+def create_room_plan_plotly(project: Project, structural_system=None):
+    """Plotlyを使用した平面プレビュー（CAD図面描画エンジン）- パネル割付結果と構造要素も表示"""
     fig = go.Figure()
     
     # 出隅ルールを適用した壁情報を取得
     wall_info = calculate_corner_winning_rules(project.room.polygon, project.room.wall_thickness)
+    
+    # 構造要素の表示（最初に描画して背景に）
+    if structural_system:
+        # 1. 通り芯の表示
+        for grid in structural_system.grid_lines:
+            line_style = "dash" if grid.is_virtual else "solid"
+            fig.add_trace(go.Scatter(
+                x=[grid.start_point[0], grid.end_point[0]],
+                y=[grid.start_point[1], grid.end_point[1]],
+                mode='lines',
+                line=dict(color='blue', width=1, dash=line_style),
+                name=f'通り芯 {grid.id}',
+                hovertemplate=f'通り芯: {grid.id}<br>{"仮想" if grid.is_virtual else "実"}<extra></extra>',
+                showlegend=False
+            ))
+            
+            # 通り芯ラベル
+            mid_x = (grid.start_point[0] + grid.end_point[0]) / 2
+            mid_y = (grid.start_point[1] + grid.end_point[1]) / 2
+            fig.add_annotation(
+                x=mid_x, y=mid_y,
+                text=grid.id,
+                showarrow=False,
+                font=dict(size=9, color='blue'),
+                bgcolor='rgba(255,255,255,0.7)'
+            )
+        
+        # 2. 柱の表示
+        for col in structural_system.columns:
+            color = 'cyan' if col.locked else 'darkgray'
+            
+            if col.section_type == "rect":
+                # 矩形柱
+                x0 = col.x - col.width / 2
+                y0 = col.y - col.depth / 2
+                x1 = col.x + col.width / 2
+                y1 = col.y + col.depth / 2
+                
+                # 矩形を描画
+                fig.add_shape(
+                    type="rect",
+                    x0=x0, y0=y0, x1=x1, y1=y1,
+                    fillcolor=color,
+                    opacity=0.5,
+                    line=dict(color=color, width=2),
+                    layer='below'
+                )
+            else:
+                # 円形柱
+                fig.add_shape(
+                    type="circle",
+                    x0=col.x - col.width/2, y0=col.y - col.width/2,
+                    x1=col.x + col.width/2, y1=col.y + col.width/2,
+                    fillcolor=color,
+                    opacity=0.5,
+                    line=dict(color=color, width=2),
+                    layer='below'
+                )
+            
+            # 柱ラベル
+            fig.add_annotation(
+                x=col.x, y=col.y,
+                text=f"{col.id}",
+                showarrow=False,
+                font=dict(size=7, color='white'),
+                bgcolor=color
+            )
+        
+        # 3. 梁の表示（まぐさは表示しない）
+        for beam in structural_system.beams:
+            if beam.is_lintel:
+                continue
+            color = 'cyan' if beam.locked else 'black'
+            width = 2
+            fig.add_trace(go.Scatter(
+                x=[beam.start_point[0], beam.end_point[0]],
+                y=[beam.start_point[1], beam.end_point[1]],
+                mode='lines',
+                line=dict(color=color, width=width),
+                name=f'梁 {beam.id}',
+                hovertemplate=f'梁: {beam.id}<br>幅: {beam.width:.0f}mm<br>梁成: {beam.depth:.0f}mm<extra></extra>',
+                showlegend=False
+            ))
+        
+        # 4. 間柱の2D表示（四角マーカー）
+        for stud in structural_system.studs:
+            is_king = stud.stud_type == "king"
+            
+            # 色とサイズの設定
+            if is_king:
+                color = 'rgba(255, 100, 0, 0.9)'  # 濃いオレンジ
+                size = 20
+            else:
+                color = 'rgba(150, 150, 150, 0.6)'  # 灰色
+                size = 12
+            
+            # 四角マーカーで表示
+            fig.add_trace(go.Scatter(
+                x=[stud.x], y=[stud.y],
+                mode='markers',
+                marker=dict(
+                    size=size, 
+                    color=color, 
+                    symbol='square',
+                    line=dict(width=2, color='black')
+                ),
+                name=f'{"キングスタッド" if is_king else "間柱"}',
+                hovertemplate=f'間柱: {stud.id}<br>タイプ: {stud.stud_type}<br>壁: {stud.wall_id}<extra></extra>',
+                showlegend=False
+            ))
     
     # 部屋外形の描画（外側の線）
     poly = project.room.polygon + [project.room.polygon[0]]  # 閉じた多角形
@@ -238,19 +348,119 @@ def create_room_plan_plotly(project: Project):
         showlegend=True,
         width=900,
         height=700,
-        xaxis=dict(scaleanchor="y", scaleratio=1),
-        hovermode='closest'
+        xaxis=dict(
+            scaleanchor="y", 
+            scaleratio=1, 
+            dtick=910,
+            fixedrange=False  # マウスホイールでの拡大縮小を有効化
+        ),
+        yaxis=dict(
+            dtick=910,
+            fixedrange=False  # マウスホイールでの拡大縮小を有効化
+        ),
+        hovermode='closest',
+        dragmode='pan'  # デフォルトでパンモードに設定
     )
     
     return fig
 
-def create_3d_elevation_view(project: Project, panels: List[Panel]):
-    """3D表示見付図（立体的な壁面表示）- 建築的制約に基づく正確な表示"""
+def create_3d_elevation_view(project: Project, panels: List[Panel], structural_system=None, wall_info=None):
+    """3D表示見付図（立体的な壁面表示）- 建築的制約に基づく正確な表示 + 構造要素。
+    wall_info を渡すと W5,W6,... を含む拡張壁情報でパネルを表示（新規壁対応）。"""
     fig = go.Figure()
-    
-    # 出隅ルールを適用した壁情報を取得
-    wall_info = calculate_corner_winning_rules(project.room.polygon, project.room.wall_thickness)
+    if wall_info is None:
+        wall_info = calculate_corner_winning_rules(project.room.polygon, project.room.wall_thickness)
     height = project.room.height
+    
+    # 構造要素の3D表示（最初に描画）
+    if structural_system:
+        # 1. 柱の3D表示
+        for col in structural_system.columns:
+            color = 'cyan' if col.locked else 'rgba(128,128,128,0.6)'
+            
+            if col.section_type == "rect":
+                # 矩形柱をメッシュで表示
+                x0 = col.x - col.width / 2
+                x1 = col.x + col.width / 2
+                y0 = col.y - col.depth / 2
+                y1 = col.y + col.depth / 2
+                z0 = col.base_level
+                z1 = col.top_level
+                
+                # 8頂点
+                vertices_x = [x0, x1, x1, x0, x0, x1, x1, x0]
+                vertices_y = [y0, y0, y1, y1, y0, y0, y1, y1]
+                vertices_z = [z0, z0, z0, z0, z1, z1, z1, z1]
+                
+                # 12三角形（6面×2三角形）
+                i = [0, 0, 4, 4, 0, 1, 1, 2, 2, 3, 3, 0]
+                j = [1, 3, 5, 7, 4, 5, 2, 6, 3, 7, 0, 1]
+                k = [2, 4, 6, 6, 5, 6, 6, 7, 7, 4, 4, 2]
+                
+                fig.add_trace(go.Mesh3d(
+                    x=vertices_x,
+                    y=vertices_y,
+                    z=vertices_z,
+                    i=i, j=j, k=k,
+                    color=color,
+                    opacity=0.7,
+                    name=f'柱 {col.id}',
+                    hovertemplate=f'柱: {col.id}<br>断面: {col.width:.0f}×{col.depth:.0f}<br>材質: {col.material}<extra></extra>',
+                    showlegend=False
+                ))
+            else:
+                # 円形柱（簡略化：線分で表示）
+                fig.add_trace(go.Scatter3d(
+                    x=[col.x, col.x],
+                    y=[col.y, col.y],
+                    z=[col.base_level, col.top_level],
+                    mode='lines',
+                    line=dict(color='darkgray', width=8),
+                    name=f'柱 {col.id}',
+                    hovertemplate=f'柱: {col.id}<br>直径: {col.width:.0f}<br>材質: {col.material}<extra></extra>',
+                    showlegend=False
+                ))
+        
+        # 2. 梁の3D表示（まぐさは表示しない）
+        for beam in structural_system.beams:
+            if beam.is_lintel:
+                continue
+            color = 'cyan' if beam.locked else 'rgba(64,64,64,0.8)'
+            width = 4
+            fig.add_trace(go.Scatter3d(
+                x=[beam.start_point[0], beam.end_point[0]],
+                y=[beam.start_point[1], beam.end_point[1]],
+                z=[beam.start_point[2], beam.end_point[2]],
+                mode='lines',
+                line=dict(color=color, width=width),
+                name=f'梁 {beam.id}',
+                hovertemplate=f'梁: {beam.id}<br>幅: {beam.width:.0f}mm<br>梁成: {beam.depth:.0f}mm<extra></extra>',
+                showlegend=False
+            ))
+        
+        # 3. 間柱の3D表示（色分け）
+        for stud in structural_system.studs:
+            is_king = stud.stud_type == "king"
+            
+            # 色とサイズの設定
+            if is_king:
+                color = 'rgba(255, 100, 0, 0.9)'  # 濃いオレンジ
+                width = 14
+            else:
+                color = 'rgba(150, 150, 150, 0.6)'  # 灰色
+                width = 6
+            
+            # 間柱を線分で表示
+            fig.add_trace(go.Scatter3d(
+                x=[stud.x, stud.x],
+                y=[stud.y, stud.y],
+                z=[stud.base_level, stud.top_level],
+                mode='lines',
+                line=dict(color=color, width=width),
+                name=f'{"キングスタッド" if is_king else "間柱"} {stud.id}',
+                hovertemplate=f'間柱: {stud.id}<br>タイプ: {stud.stud_type}<br>壁: {stud.wall_id}<extra></extra>',
+                showlegend=False
+            ))
     
     # 床面（外側）
     floor_x = [p[0] for p in project.room.polygon] + [project.room.polygon[0][0]]
@@ -415,14 +625,12 @@ def create_3d_elevation_view(project: Project, panels: List[Panel]):
             if panel.wall_id == "W1":  # 下壁 - 内側面（上側）にボードを配置
                 panel_start_x = wall["start"][0] + panel_start_ratio * (wall["end"][0] - wall["start"][0])
                 panel_end_x = wall["start"][0] + panel_end_ratio * (wall["end"][0] - wall["start"][0])
-                # 内側面からボード厚さ分内側に配置
                 panel_y = wall["start"][1] + project.room.wall_thickness - board_thickness
                 panel_x = [panel_start_x, panel_end_x, panel_end_x, panel_start_x, panel_start_x]
                 panel_y_coords = [panel_y, panel_y, panel_y, panel_y, panel_y]
-            else:  # W3 上壁 - 内側面（下側）にボードを配置
+            else:  # W3 または新規壁（W5以降） - 内側面（下側）にボードを配置
                 panel_start_x = wall["start"][0] + panel_start_ratio * (wall["end"][0] - wall["start"][0])
                 panel_end_x = wall["start"][0] + panel_end_ratio * (wall["end"][0] - wall["start"][0])
-                # 内側面からボード厚さ分内側に配置
                 panel_y = wall["start"][1] - project.room.wall_thickness + board_thickness
                 panel_x = [panel_start_x, panel_end_x, panel_end_x, panel_start_x, panel_start_x]
                 panel_y_coords = [panel_y, panel_y, panel_y, panel_y, panel_y]
@@ -430,14 +638,12 @@ def create_3d_elevation_view(project: Project, panels: List[Panel]):
             if panel.wall_id == "W2":  # 右壁 - 内側面（左側）にボードを配置
                 panel_start_y = wall["start"][1] + panel_start_ratio * (wall["end"][1] - wall["start"][1])
                 panel_end_y = wall["start"][1] + panel_end_ratio * (wall["end"][1] - wall["start"][1])
-                # 内側面からボード厚さ分内側に配置
                 panel_x_coord = wall["start"][0] - project.room.wall_thickness + board_thickness
                 panel_x = [panel_x_coord, panel_x_coord, panel_x_coord, panel_x_coord, panel_x_coord]
                 panel_y_coords = [panel_start_y, panel_end_y, panel_end_y, panel_start_y, panel_start_y]
-            else:  # W4 左壁 - 内側面（右側）にボードを配置
+            else:  # W4 または新規壁（W5以降） - 内側面（右側）にボードを配置
                 panel_start_y = wall["start"][1] + panel_start_ratio * (wall["end"][1] - wall["start"][1])
                 panel_end_y = wall["start"][1] + panel_end_ratio * (wall["end"][1] - wall["start"][1])
-                # 内側面からボード厚さ分内側に配置
                 panel_x_coord = wall["start"][0] + project.room.wall_thickness - board_thickness
                 panel_x = [panel_x_coord, panel_x_coord, panel_x_coord, panel_x_coord, panel_x_coord]
                 panel_y_coords = [panel_start_y, panel_end_y, panel_end_y, panel_start_y, panel_start_y]
@@ -455,8 +661,10 @@ def create_3d_elevation_view(project: Project, panels: List[Panel]):
             showlegend=False
         ))
     
-    # 開口の3D表示
+    # 開口の3D表示（W1～W4 のみ。新規壁は開口なし）
     for op in project.openings:
+        if op.wall not in wall_info:
+            continue
         wall = wall_info[op.wall]
         L = wall["length"]
         off = place_opening_position(L, op)
@@ -518,6 +726,9 @@ def create_3d_elevation_view(project: Project, panels: List[Panel]):
             xaxis_title="X (mm)",
             yaxis_title="Y (mm)",
             zaxis_title="Z (mm)",
+            xaxis=dict(dtick=910),
+            yaxis=dict(dtick=910),
+            zaxis=dict(dtick=1000),
             aspectmode='data',
             camera=dict(
                 eye=dict(x=1.5, y=1.5, z=1.2)
@@ -530,8 +741,8 @@ def create_3d_elevation_view(project: Project, panels: List[Panel]):
     
     return fig
 
-def create_wall_elevation_plotly(wall_id: str, wall_len: float, H: float, panels: List[Panel], openings: List[Opening]):
-    """Plotlyを使用した壁立面図 - 出隅ルール適用後の実際の壁長さを使用"""
+def create_wall_elevation_plotly(wall_id: str, wall_len: int, H: int, panels: List[Panel], openings: List[Opening], structural_system=None):
+    """Plotlyを使用した壁立面図 - 出隅ルール適用後の実際の壁長さを使用 + 間柱表示 + 勝ち負け表示"""
     fig = go.Figure()
     
     # 壁の外形
@@ -540,6 +751,42 @@ def create_wall_elevation_plotly(wall_id: str, wall_len: float, H: float, panels
         x0=0, y0=0, x1=wall_len, y1=H,
         line=dict(color="black", width=2),
         fillcolor="rgba(240,240,240,0.3)"
+    )
+    
+    # 壁の端部に勝ち負けを示すマーカーを追加
+    # 左端（始点）- 勝ち側を緑、負け側を赤で表示
+    edge_width = 30  # 端部マーカーの幅
+    
+    # 左端マーカー（始点側）
+    fig.add_shape(
+        type="rect",
+        x0=0, y0=0, x1=edge_width, y1=H,
+        fillcolor="rgba(0, 255, 0, 0.3)",  # 緑（勝ち側を想定）
+        line=dict(color="green", width=3, dash="dash"),
+        layer="below"
+    )
+    fig.add_annotation(
+        x=edge_width/2, y=H-100,
+        text="始点",
+        showarrow=False,
+        font=dict(size=10, color='green', family='Arial Black'),
+        bgcolor='rgba(255,255,255,0.8)'
+    )
+    
+    # 右端マーカー（終点側）
+    fig.add_shape(
+        type="rect",
+        x0=wall_len-edge_width, y0=0, x1=wall_len, y1=H,
+        fillcolor="rgba(255, 0, 0, 0.3)",  # 赤（負け側を想定）
+        line=dict(color="red", width=3, dash="dash"),
+        layer="below"
+    )
+    fig.add_annotation(
+        x=wall_len-edge_width/2, y=H-100,
+        text="終点",
+        showarrow=False,
+        font=dict(size=10, color='red', family='Arial Black'),
+        bgcolor='rgba(255,255,255,0.8)'
     )
     
     # 開口の表示
@@ -610,16 +857,116 @@ def create_wall_elevation_plotly(wall_id: str, wall_len: float, H: float, panels
             borderwidth=1
         )
     
+    # 間柱の表示（最後に描画して最前面に）
+    if structural_system:
+        wall_studs = [s for s in structural_system.studs if s.wall_id == wall_id]
+        
+        # デバッグ: 間柱の数を確認
+        print(f"DEBUG: {wall_id} - 間柱数={len(wall_studs)}")
+        
+        # 通常の間柱を描画
+        regular_count = 0
+        for stud in wall_studs:
+            if stud.stud_type == "regular":
+                stud_x = stud.wall_position
+                print(f"DEBUG: 通常間柱 {stud.id} at x={stud_x}, wall_len={wall_len}")
+                if 0 <= stud_x <= wall_len:
+                    regular_count += 1
+                    # 薄い縦線で表示
+                    fig.add_shape(
+                        type="line",
+                        x0=stud_x, y0=0,
+                        x1=stud_x, y1=H,
+                        line=dict(color="rgba(150, 150, 150, 0.6)", width=2, dash="dash"),
+                        layer="below"
+                    )
+        print(f"DEBUG: {wall_id} - 表示された通常間柱={regular_count}本")
+        
+        # キングスタッドを描画（目立つように、最前面に）
+        king_count = 0
+        for stud in wall_studs:
+            if stud.stud_type == "king":
+                stud_x = stud.wall_position
+                print(f"DEBUG: キングスタッド {stud.id} at x={stud_x}")
+                
+                if 0 <= stud_x <= wall_len:
+                    king_count += 1
+                    color = "rgba(255, 100, 0, 0.8)"  # 濃いオレンジ
+                    stud_width = 50  # mm
+                    
+                    # 矩形で表示（最前面）
+                    fig.add_shape(
+                        type="rect",
+                        x0=stud_x - stud_width/2, y0=0,
+                        x1=stud_x + stud_width/2, y1=H,
+                        fillcolor=color,
+                        line=dict(color="black", width=2),
+                        layer="above"
+                    )
+        print(f"DEBUG: {wall_id} - 表示されたキングスタッド={king_count}本")
+    else:
+        print(f"DEBUG: {wall_id} - 構造システムがNone")
+    
     fig.update_layout(
         title=f"{wall_id} 立面図（割付）- 実長: {wall_len:.0f}mm",
         xaxis_title="壁方向 (mm)",
         yaxis_title="高さ (mm)",
         width=800,
         height=400,
-        xaxis=dict(range=[-50, wall_len+50]),
-        yaxis=dict(range=[0, H+50]),
-        showlegend=False
+        xaxis=dict(
+            range=[-50, wall_len+50], 
+            dtick=910,
+            fixedrange=False  # マウスホイールでの拡大縮小を有効化
+        ),
+        yaxis=dict(
+            range=[0, H+50], 
+            dtick=1000,
+            fixedrange=False  # マウスホイールでの拡大縮小を有効化
+        ),
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            bordercolor="black",
+            borderwidth=1
+        ),
+        dragmode='pan'  # デフォルトでパンモードに設定
     )
+    
+    # 凡例用のダミートレースを追加
+    if structural_system:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='lines',
+            line=dict(color='rgba(150, 150, 150, 0.6)', width=2, dash='dash'),
+            name='間柱（通常）',
+            showlegend=True
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(size=15, color='rgba(255, 100, 0, 0.8)', symbol='square'),
+            name='キングスタッド',
+            showlegend=True
+        ))
+    
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color='lightgreen', symbol='square'),
+        name='パネル',
+        showlegend=True
+    ))
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode='markers',
+        marker=dict(size=10, color='darkred', symbol='square'),
+        name='開口部',
+        showlegend=True
+    ))
     
     return fig
 
@@ -683,20 +1030,30 @@ def create_nesting_plotly(placements: List[NestPlacement], board: BoardMaster):
         title="板取結果",
         width=1000,
         height=600 * rows,
-        showlegend=False
+        showlegend=False,
+        dragmode='pan'  # デフォルトでパンモードに設定
     )
+    
+    # 各サブプロットでマウスホイールでの拡大縮小を有効化
+    for i in range(1, num_sheets + 1):
+        row = (i - 1) // 2 + 1
+        col = (i - 1) % 2 + 1
+        fig.update_xaxes(fixedrange=False, row=row, col=col)
+        fig.update_yaxes(fixedrange=False, row=row, col=col)
     
     # 各サブプロットの軸設定
     for i in range(1, num_sheets + 1):
         fig.update_xaxes(
             title_text="X (mm)",
             range=[0, board.raw_width * 1.1],
+            dtick=910,
             row=((i-1) // cols) + 1,
             col=((i-1) % cols) + 1
         )
         fig.update_yaxes(
             title_text="Y (mm)",
             range=[0, board.raw_height * 1.1],
+            dtick=1000,
             scaleanchor=f"x{i}",
             scaleratio=1,
             row=((i-1) // cols) + 1,
