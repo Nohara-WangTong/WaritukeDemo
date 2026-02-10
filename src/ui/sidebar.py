@@ -13,10 +13,12 @@ def render_sidebar():
     current_lang = st.session_state.language
 
     st.subheader(get_text("language_selection", current_lang))
+    lang_values = list(LANGUAGES.values())
+    lang_index = lang_values.index(current_lang) if current_lang in lang_values else 0
     selected_language = st.selectbox(
         "言語 / Language",
         options=list(LANGUAGES.keys()),
-        index=list(LANGUAGES.values()).index(current_lang),
+        index=lang_index,
         key="language_selector",
         label_visibility="collapsed"
     )

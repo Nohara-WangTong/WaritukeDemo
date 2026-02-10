@@ -2,6 +2,7 @@
 割付・板取 PoC - エントリポイント
 """
 import streamlit as st
+import traceback
 
 from src.i18n import get_text
 from src.input import load_demo_project
@@ -25,17 +26,28 @@ from src.ui import (
 
 st.set_page_config(page_title="Panel Allocation & Nesting PoC", layout="wide")
 
-if "project" not in st.session_state:
-    st.session_state.project = load_demo_project()
-if "board" not in st.session_state:
-    _b, r, mode = default_master()
-    st.session_state.board = create_board_from_height(st.session_state.project.room.height)
-    st.session_state.rules = r
-    st.session_state.output_mode = mode
-if "results" not in st.session_state:
-    st.session_state.results = {}
-if "language" not in st.session_state:
-    st.session_state.language = "ja"
+# セッション初期化（クラウドでの接続リセット対策：安全なデフォルト）
+def _init_session():
+    if "project" not in st.session_state:
+        st.session_state.project = load_demo_project()
+    if "board" not in st.session_state:
+        _b, r, mode = default_master()
+        st.session_state.board = create_board_from_height(st.session_state.project.room.height)
+        st.session_state.rules = r
+        st.session_state.output_mode = mode
+    if "results" not in st.session_state:
+        st.session_state.results = {}
+    if "language" not in st.session_state:
+        st.session_state.language = "ja"
+    if st.session_state.language not in ("ja", "en", "zh", "vi"):
+        st.session_state.language = "ja"
+
+try:
+    _init_session()
+except Exception as e:
+    st.error(f"初期化エラー: {e}")
+    st.code(traceback.format_exc())
+    st.stop()
 
 current_lang = st.session_state.language
 st.title(get_text("app_title", current_lang))
@@ -75,48 +87,56 @@ extra_walls = st.session_state.get("extra_walls", [])
 # =========================
 
 if run:
-    panels, errors = allocate_walls_with_architectural_constraints(
-        project, board, rules, output_mode, stud_pitch, extra_walls=extra_walls
-    )
-    placements, util, num_sheets = simple_nesting(panels, board, rules, prefer_y_long)
-    alloc_time = next((e["sec"] for e in errors if e.get("code") == "INFO-TIME" and e.get("phase") == "allocation"), 0)
-    st.session_state.results = {
-        "panels": panels,
-        "errors": errors,
-        "placements": placements,
-        "utilization": util,
-        "num_sheets": num_sheets,
-        "alloc_time": alloc_time,
-    }
-    from src.structural import generate_structural_system
-    st.session_state.structural_system = generate_structural_system(project, "S", stud_pitch)
-    st.success(get_text("execution_success", current_lang).format(pitch=stud_pitch, board=board.name))
+    try:
+        panels, errors = allocate_walls_with_architectural_constraints(
+            project, board, rules, output_mode, stud_pitch, extra_walls=extra_walls
+        )
+        placements, util, num_sheets = simple_nesting(panels, board, rules, prefer_y_long)
+        alloc_time = next((e["sec"] for e in errors if e.get("code") == "INFO-TIME" and e.get("phase") == "allocation"), 0)
+        st.session_state.results = {
+            "panels": panels,
+            "errors": errors,
+            "placements": placements,
+            "utilization": util,
+            "num_sheets": num_sheets,
+            "alloc_time": alloc_time,
+        }
+        from src.structural import generate_structural_system
+        st.session_state.structural_system = generate_structural_system(project, "S", stud_pitch)
+        st.success(get_text("execution_success", current_lang).format(pitch=stud_pitch, board=board.name))
+    except Exception as e:
+        st.error(f"割付・板取エラー: {e}")
+        st.code(traceback.format_exc())
 
 # =========================
 # 各タブの描画
 # =========================
 
-with tab1:
-    render_tab_project(project, stud_pitch, prefer_y_long)
+try:
+    with tab1:
+        render_tab_project(project, stud_pitch, prefer_y_long)
 
-with tab2:
-    render_tab_allocation(project, board, rules, output_mode, extra_walls, stud_pitch)
+    with tab2:
+        render_tab_allocation(project, board, rules, output_mode, extra_walls, stud_pitch)
 
-with tab3:
-    render_tab_nesting(board)
+    with tab3:
+        render_tab_nesting(board)
 
-with tab4:
-    render_tab_drawings(board)
+    with tab4:
+        render_tab_drawings(board)
 
-with tab5:
-    render_tab_master(board, rules, output_mode)
+    with tab5:
+        render_tab_master(board, rules, output_mode)
 
-with tab6:
-    render_tab_settings()
+    with tab6:
+        render_tab_settings()
 
-# =========================
-# フッター
-# =========================
+    # =========================
+    # フッター
+    # =========================
 
-st.caption(get_text("footer_note1", current_lang))
-st.caption(get_text("footer_note2", current_lang))
+    st.caption(get_text("footer_note1", current_lang))
+    st.caption(get_text("footer_note2", current_lang))
+except Exception as e:
+    st.error(f"表示エラー: {e}")
+    st.code(traceback.format_exc())

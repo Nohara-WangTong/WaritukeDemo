@@ -1,0 +1,11 @@
+# Streamlit Cloud 向け設定（ERR_CONNECTION_RESET 対策）
+# https://docs.streamlit.io/deploy/streamlit-community-cloud
+
+[server]
+headless = true
+enableCORS = false
+enableWebsocketCompression = false
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
